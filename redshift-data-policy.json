@@ -1,0 +1,29 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "RedshiftExecuteStatementAccess",
+        "Effect": "Allow",
+        "Action": "redshift-data:ExecuteStatement",
+        "Resource": "arn:aws:redshift:us-east-1:634387421790:cluster:customer-analytics"
+      },
+      {
+        "Sid": "RedshiftStatementStatusAccess",
+        "Effect": "Allow",
+        "Action": [
+          "redshift-data:DescribeStatement",
+          "redshift-data:GetStatementResult"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "RedshiftGetClusterCredentials",
+        "Effect": "Allow",
+        "Action": "redshift:GetClusterCredentials",
+        "Resource": [
+          "arn:aws:redshift:us-east-1:634387421790:dbuser:customer-analytics/admin",
+          "arn:aws:redshift:us-east-1:634387421790:dbname:customer-analytics/customer"
+        ]
+      }
+    ]
+}

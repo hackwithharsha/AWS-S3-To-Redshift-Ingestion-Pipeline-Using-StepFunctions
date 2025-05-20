@@ -1,0 +1,79 @@
+{
+    "StartAt": "Drop Staging Table",
+    "States": {
+      "Drop Staging Table": {
+        "Type": "Task",
+        "Parameters": {
+          "ClusterIdentifier": "customer-analytics",
+          "Database": "customer",
+          "DbUser": "admin",
+          "Sql": "DROP TABLE IF EXISTS staging_customer_data"
+        },
+        "Resource": "arn:aws:states:::aws-sdk:redshiftdata:executeStatement",
+        "Next": "Create Staging Table"
+      },
+      "Create Staging Table": {
+        "Type": "Task",
+        "Parameters": {
+          "ClusterIdentifier": "customer-analytics",
+          "Database": "customer",
+          "DbUser": "admin",
+          "Sql": "CREATE TABLE staging_customer_data (LIKE customer_data)"
+        },
+        "Resource": "arn:aws:states:::aws-sdk:redshiftdata:executeStatement",
+        "Next": "Execute COPY"
+      },
+      "Execute COPY": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::aws-sdk:redshiftdata:executeStatement",
+        "Parameters": {
+          "ClusterIdentifier": "customer-analytics",
+          "Database": "customer",
+          "DbUser": "admin",
+          "Sql": "COPY staging_customer_data FROM 's3://hack-with-harsha-sales-data2/customer/customer.csv' IAM_ROLE 'arn:aws:iam::634387421790:role/RedshiftCopyRole' FORMAT AS CSV IGNOREHEADER 1 REGION 'us-east-1';"
+        },
+        "ResultPath": "$.copyResult",
+        "Next": "Wait 30 Seconds"
+      },
+      "Wait 30 Seconds": {
+        "Type": "Wait",
+        "Seconds": 30,
+        "Next": "Describe COPY Status"
+      },
+      "Describe COPY Status": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::aws-sdk:redshiftdata:describeStatement",
+        "Parameters": {
+          "Id.$": "$.copyResult.Id"
+        },
+        "ResultPath": "$.describeResult",
+        "Next": "Check COPY Status"
+      },
+      "Check COPY Status": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.describeResult.Status",
+            "StringEquals": "FINISHED",
+            "Next": "NextStepOnSuccess"
+          },
+          {
+            "Variable": "$.describeResult.Status",
+            "StringEquals": "FAILED",
+            "Next": "Send Failure Email"
+          }
+        ],
+        "Default": "Wait 30 Seconds"
+      },
+      "NextStepOnSuccess": {
+        "Type": "Pass",
+        "Result": "COPY finished successfully",
+        "End": true
+      },
+      "Send Failure Email": {
+        "Type": "Pass",
+        "Result": "COPY failed, trigger SES or SNS",
+        "End": true
+      }
+    }
+  }
