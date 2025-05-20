@@ -1,0 +1,12 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowSESSendFromSpecificEmail",
+        "Effect": "Allow",
+        "Action": "ses:SendEmail",
+        "Resource": "arn:aws:ses:us-east-1:<your-account-id>:identity/<your-email>@gmail.com"
+      }
+    ]
+  }
+  

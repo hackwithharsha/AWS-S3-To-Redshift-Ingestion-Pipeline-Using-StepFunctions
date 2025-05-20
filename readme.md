@@ -6,6 +6,22 @@ The pipeline ensures ACID-compliant data replacement by truncating existing data
 
 It leverages `AWS Step Functions`, `Lambda`, and `Redshift Data API` to handle large files, monitor job status, and send branded success/failure email notifications using `Amazon SES`.
 
+Here is the final step function workflow:
+
+![ss](./images/stepfunctions_graph.png)
+
+> This step function is designed to handle large files and long-running operations. It uses a polling pattern to check the status of the `COPY` command in Redshift, ensuring that the data ingestion process is robust and reliable.
+
+> The workflow is triggered by an S3 event, and it includes error handling and email notifications to keep you informed about the status of the data ingestion process.
+
+Here is the sample email
+
+![email](./images/email.jpg)
+
+> [!WARNING]
+> * Make sure to replace your email address in the `step-function.json` file before deploying the step function.
+> * Replace `<your-account-id>`, role-arn, and step-function-arn, `<your-step-function-name>`
+
 ### Key Features
 
 * **Auto-triggered** on file upload to S3
@@ -130,13 +146,123 @@ Use `step-function.json` file to create a `Step Function` state machine.
 
 And then attach `redshift-policy.json` policy to the `Step Function` role as `inline-policy`.
 
+Verify your email address in `Amazon SES` to send email notifications. Do this for both the `sender` and the `receiver` email addresses.
+
+```bash
+>>> aws ses verify-email-identity --email-address <your-email-address>
+```
+
+Send test email to verify the `Amazon SES` configuration.
+
+```bash
+>>> aws ses send-email \
+  --from <your-email-address> \
+  --destination "ToAddresses=<your-email-address>" \
+  --message "Subject={Data=Test Email},Body={Text={Data=This is a test email.}}"
+```
+
+Now, attach `ses-policy.json` policy to the `Step Function` role as `inline-policy`.
+
 ### AWS Event Bridge
 
-Create an `Event Bridge` rule to trigger the `Step Function` when a file is uploaded to `S3`.
+Create following role to allow `Event Bridge` to trigger the `Step Function`.
+
+```bash
+>>> aws iam create-role \
+  --role-name AllowEventBridgeStartExecution \
+  --assume-role-policy-document file://ses-trust-policy.json
+```
+
+Attach following policy to the role.
+
+```bash
+>>> aws iam put-role-policy \
+  --role-name AllowEventBridgeStartExecution \
+  --policy-name AllowStepFunctionExecution \
+  --policy-document file://allow-stepfunction-execution.json
+```
+
+Replace the placeholders with your actual `Step Function ARN` and `role ARN`.
+
+Enable S3 Event Notifications to EventBridge (via CLI)
+
+```bash
+>>> aws s3api put-bucket-notification-configuration \
+  --bucket hack-with-harsha-sales-data2 \
+  --notification-configuration '{"EventBridgeConfiguration": {}}'
+```
+
+Create EventBridge Rule (via CLI)
 
 ```bash
 >>> aws events put-rule \
-  --name TriggerStepFunctionOnS3Upload \
-  --event-pattern file://s3-event-pattern.json \
+  --name trigger-stepfunction-on-customer-upload \
+  --event-pattern '{
+    "source": ["aws.s3"],
+    "detail-type": ["Object Created"],
+    "detail": {
+      "bucket": {
+        "name": ["hack-with-harsha-sales-data2"]
+      },
+      "object": {
+        "key": ["customer/customer.csv"]
+      }
+    }
+  }' \
   --state ENABLED
 ```
+
+
+```bash
+>>> aws events put-targets \
+  --rule trigger-stepfunction-on-customer-upload \
+  --targets '[
+    {
+      "Id": "TriggerStepFunction",
+      "Arn": "arn:aws:states:us-east-1:<your-account-id>:stateMachine:<your-step-function-name>",
+      "RoleArn": "arn:aws:iam::<your-account-id>:role/AllowEventBridgeStartExecution",
+      "Input": "{\"triggeredBy\":\"S3 Event for customer.csv\"}"
+    }
+  ]'
+```
+
+### Cleanup
+
+**Delete the Redshift Cluster**
+
+```bash
+>>> aws redshift delete-cluster \
+  --cluster-identifier customer-analytics \
+  --skip-final-cluster-snapshot
+```
+
+**Delete the s3 bucket**
+
+```bash
+>>> aws s3 rm s3://hack-with-harsha-sales-data2 --recursive
+```
+
+```bash
+>>> aws s3 rb s3://hack-with-harsha-sales-data2 --force
+```
+
+**Remove EventBridge Rule Target**
+
+```bash
+>>> aws events remove-targets \
+  --rule trigger-stepfunction-on-customer-upload \
+  --ids $(aws events list-targets-by-rule \
+    --rule trigger-stepfunction-on-customer-upload \
+    --query 'Targets[*].Id' \
+    --output text)
+```
+
+**Remove EventBridge Rule**
+
+```bash
+>>> aws events delete-rule --name trigger-stepfunction-on-customer-upload
+```
+
+- **Delete Step Function manually through console**
+
+- **Delete IAM Roles and Policies that we created manually through console**

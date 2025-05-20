@@ -5,7 +5,7 @@
         "Sid": "RedshiftExecuteStatementAccess",
         "Effect": "Allow",
         "Action": "redshift-data:ExecuteStatement",
-        "Resource": "arn:aws:redshift:us-east-1:634387421790:cluster:customer-analytics"
+        "Resource": "arn:aws:redshift:us-east-1:<your-account-id>:cluster:customer-analytics"
       },
       {
         "Sid": "RedshiftStatementStatusAccess",
@@ -21,8 +21,8 @@
         "Effect": "Allow",
         "Action": "redshift:GetClusterCredentials",
         "Resource": [
-          "arn:aws:redshift:us-east-1:634387421790:dbuser:customer-analytics/admin",
-          "arn:aws:redshift:us-east-1:634387421790:dbname:customer-analytics/customer"
+          "arn:aws:redshift:us-east-1:<your-account-id>:dbuser:customer-analytics/admin",
+          "arn:aws:redshift:us-east-1:<your-account-id>:dbname:customer-analytics/customer"
         ]
       }
     ]

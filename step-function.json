@@ -1,79 +1,130 @@
 {
-    "StartAt": "Drop Staging Table",
-    "States": {
-      "Drop Staging Table": {
-        "Type": "Task",
-        "Parameters": {
-          "ClusterIdentifier": "customer-analytics",
-          "Database": "customer",
-          "DbUser": "admin",
-          "Sql": "DROP TABLE IF EXISTS staging_customer_data"
+  "StartAt": "Drop Staging Table",
+  "States": {
+    "Drop Staging Table": {
+      "Type": "Task",
+      "Parameters": {
+        "ClusterIdentifier": "customer-analytics",
+        "Database": "customer",
+        "DbUser": "admin",
+        "Sql": "DROP TABLE IF EXISTS staging_customer_data"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:redshiftdata:executeStatement",
+      "Next": "Create Staging Table"
+    },
+    "Create Staging Table": {
+      "Type": "Task",
+      "Parameters": {
+        "ClusterIdentifier": "customer-analytics",
+        "Database": "customer",
+        "DbUser": "admin",
+        "Sql": "CREATE TABLE staging_customer_data (LIKE customer_data)"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:redshiftdata:executeStatement",
+      "Next": "Execute COPY"
+    },
+    "Execute COPY": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:redshiftdata:executeStatement",
+      "Parameters": {
+        "ClusterIdentifier": "customer-analytics",
+        "Database": "customer",
+        "DbUser": "admin",
+        "Sql": "COPY staging_customer_data FROM 's3://hack-with-harsha-sales-data2/customer/customer.csv' IAM_ROLE 'arn:aws:iam::<your-account-id>:role/RedshiftCopyRole' FORMAT AS CSV IGNOREHEADER 1 REGION 'us-east-1';"
+      },
+      "ResultPath": "$.copyResult",
+      "Next": "Wait 30 Seconds"
+    },
+    "Wait 30 Seconds": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "Describe COPY Status"
+    },
+    "Describe COPY Status": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:redshiftdata:describeStatement",
+      "Parameters": {
+        "Id.$": "$.copyResult.Id"
+      },
+      "ResultPath": "$.describeResult",
+      "Next": "Check COPY Status"
+    },
+    "Check COPY Status": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.describeResult.Status",
+          "StringEquals": "FINISHED",
+          "Next": "Swap Tables"
         },
-        "Resource": "arn:aws:states:::aws-sdk:redshiftdata:executeStatement",
-        "Next": "Create Staging Table"
+        {
+          "Variable": "$.describeResult.Status",
+          "StringEquals": "FAILED",
+          "Next": "Send Failure Email"
+        }
+      ],
+      "Default": "Wait 30 Seconds"
+    },
+    "Swap Tables": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:redshiftdata:executeStatement",
+      "Parameters": {
+        "ClusterIdentifier": "customer-analytics",
+        "Database": "customer",
+        "DbUser": "admin",
+        "Sql": "BEGIN; DELETE FROM customer_data; INSERT INTO customer_data SELECT * FROM staging_customer_data; DROP TABLE staging_customer_data; COMMIT;"
       },
-      "Create Staging Table": {
-        "Type": "Task",
-        "Parameters": {
-          "ClusterIdentifier": "customer-analytics",
-          "Database": "customer",
-          "DbUser": "admin",
-          "Sql": "CREATE TABLE staging_customer_data (LIKE customer_data)"
+      "Next": "Send Success Email"
+    },
+    "Send Success Email": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ses:sendEmail",
+      "Parameters": {
+        "Destination": {
+          "ToAddresses": [
+            "<your-email>@gmail.com"
+          ]
         },
-        "Resource": "arn:aws:states:::aws-sdk:redshiftdata:executeStatement",
-        "Next": "Execute COPY"
-      },
-      "Execute COPY": {
-        "Type": "Task",
-        "Resource": "arn:aws:states:::aws-sdk:redshiftdata:executeStatement",
-        "Parameters": {
-          "ClusterIdentifier": "customer-analytics",
-          "Database": "customer",
-          "DbUser": "admin",
-          "Sql": "COPY staging_customer_data FROM 's3://hack-with-harsha-sales-data2/customer/customer.csv' IAM_ROLE 'arn:aws:iam::634387421790:role/RedshiftCopyRole' FORMAT AS CSV IGNOREHEADER 1 REGION 'us-east-1';"
-        },
-        "ResultPath": "$.copyResult",
-        "Next": "Wait 30 Seconds"
-      },
-      "Wait 30 Seconds": {
-        "Type": "Wait",
-        "Seconds": 30,
-        "Next": "Describe COPY Status"
-      },
-      "Describe COPY Status": {
-        "Type": "Task",
-        "Resource": "arn:aws:states:::aws-sdk:redshiftdata:describeStatement",
-        "Parameters": {
-          "Id.$": "$.copyResult.Id"
-        },
-        "ResultPath": "$.describeResult",
-        "Next": "Check COPY Status"
-      },
-      "Check COPY Status": {
-        "Type": "Choice",
-        "Choices": [
-          {
-            "Variable": "$.describeResult.Status",
-            "StringEquals": "FINISHED",
-            "Next": "NextStepOnSuccess"
+        "Message": {
+          "Body": {
+            "Html": {
+              "Charset": "UTF-8",
+              "Data": "<html><body style='font-family:sans-serif;'><h2 style='color:#28a745;'>✅ Redshift COPY Completed</h2><p>The data load to <strong>customer_data</strong> was successful and staging table is dropped.</p><p><em>Step Functions notification</em></p></body></html>"
+            }
           },
-          {
-            "Variable": "$.describeResult.Status",
-            "StringEquals": "FAILED",
-            "Next": "Send Failure Email"
+          "Subject": {
+            "Charset": "UTF-8",
+            "Data": "✅ Redshift COPY Successful"
           }
-        ],
-        "Default": "Wait 30 Seconds"
+        },
+        "Source": "<your-email>@gmail.com"
       },
-      "NextStepOnSuccess": {
-        "Type": "Pass",
-        "Result": "COPY finished successfully",
-        "End": true
+      "End": true
+    },
+    "Send Failure Email": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ses:sendEmail",
+      "Parameters": {
+        "Destination": {
+          "ToAddresses": [
+            "<your-email>@gmail.com"
+          ]
+        },
+        "Message": {
+          "Body": {
+            "Html": {
+              "Charset": "UTF-8",
+              "Data": "<html><body style='font-family:sans-serif;'><h2 style='color:#dc3545;'>❌ Redshift COPY Failed</h2><p>The data load to <strong>staging_customer_data</strong> failed. Please check the Step Function execution logs for more details.</p><p><em>Step Functions alert</em></p></body></html>"
+            }
+          },
+          "Subject": {
+            "Charset": "UTF-8",
+            "Data": "❌ Redshift COPY Failed"
+          }
+        },
+        "Source": "<your-email>@gmail.com"
       },
-      "Send Failure Email": {
-        "Type": "Pass",
-        "Result": "COPY failed, trigger SES or SNS",
-        "End": true
-      }
+      "End": true
     }
   }
+}
