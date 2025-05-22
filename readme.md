@@ -170,7 +170,7 @@ Create following role to allow `Event Bridge` to trigger the `Step Function`.
 ```bash
 >>> aws iam create-role \
   --role-name AllowEventBridgeStartExecution \
-  --assume-role-policy-document file://ses-trust-policy.json
+  --assume-role-policy-document file://eventbridge-trust-policy.json
 ```
 
 Attach following policy to the role.
@@ -181,8 +181,6 @@ Attach following policy to the role.
   --policy-name AllowStepFunctionExecution \
   --policy-document file://allow-stepfunction-execution.json
 ```
-
-Replace the placeholders with your actual `Step Function ARN` and `role ARN`.
 
 Enable S3 Event Notifications to EventBridge (via CLI)
 
